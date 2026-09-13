@@ -113,8 +113,9 @@ end
 
 ---@param files string[]
 ---@param filters lsp.FileOperationFilter[]
+---@param directories? table<string, boolean> Directory status captured before the operation
 ---@return string[]
-local function matching_files(files, filters)
+local function matching_files(files, filters, directories)
   local match_fns = {} ---@type (fun(file: string): boolean)[]
   for _, filter in ipairs(filters) do
     if filter.scheme == nil or filter.scheme == "file" then
@@ -123,7 +124,10 @@ local function matching_files(files, filters)
       local pattern_kind = vim.F.if_nil(vim.tbl_get(filter, "pattern", "matches"), "all")
 
       table.insert(match_fns, function(file)
-        local is_dir = vim.fn.isdirectory(file) == 1
+        local is_dir = directories and directories[file]
+        if is_dir == nil then
+          is_dir = vim.fn.isdirectory(file) == 1
+        end
         if pattern_kind == "file" and is_dir then
           return false
         elseif pattern_kind == "folder" and not is_dir then
@@ -149,7 +153,8 @@ end
 ---@param method string
 ---@param files string[]
 ---@param param_fn fun(files: string[]): (lsp.CreateFilesParams | lsp.RenameFilesParams | lsp.DeleteFilesParams)
-local function will_do(method, files, param_fn)
+---@param directories? table<string, boolean>
+local function will_do(method, files, param_fn, directories)
   local clients = vim.lsp.get_clients { method = method } ---@type vim.lsp.Client[]
 
   if vim.tbl_isempty(clients) then
@@ -160,7 +165,7 @@ local function will_do(method, files, param_fn)
     local filters =
       vim.tbl_get(client, "server_capabilities", "workspace", "fileOperations", capability_names[method], "filters")
     if filters ~= nil then
-      local param = param_fn(matching_files(files, filters))
+      local param = param_fn(matching_files(files, filters, directories))
       local result, reason
       if has_client_methods then
         result, reason = client:request_sync(method, param, nil, 0)
@@ -181,7 +186,8 @@ end
 ---@param method string
 ---@param files string[]
 ---@param param_fn fun(files: string[]): (lsp.CreateFilesParams | lsp.RenameFilesParams | lsp.DeleteFilesParams)
-local function did_do(method, files, param_fn)
+---@param directories? table<string, boolean>
+local function did_do(method, files, param_fn, directories)
   local clients = vim.lsp.get_clients { method = method } ---@type vim.lsp.Client[]
 
   if vim.tbl_isempty(clients) then
@@ -192,7 +198,7 @@ local function did_do(method, files, param_fn)
     local filters =
       vim.tbl_get(client, "server_capabilities", "workspace", "fileOperations", capability_names[method], "filters")
     if filters ~= nil then
-      local param = param_fn(matching_files(files, filters))
+      local param = param_fn(matching_files(files, filters, directories))
       local status
       if has_client_methods then
         status = client:notify(method, param)
@@ -236,24 +242,44 @@ function M.did_create_files(files)
   did_do(methods.workspace_didCreateFiles, files, create_delete_params)
 end
 
+-- Capture even when no clients subscribe to will*: did* may have different clients.
+---@param files string[]
+---@return table<string, boolean>
+local function directory_snapshot(files)
+  local directories = {}
+  for _, file in ipairs(files) do
+    directories[file] = vim.fn.isdirectory(file) == 1
+  end
+  return directories
+end
+
 ---@param file_map table<string, string> old name to new name mapping
+---@return table<string, boolean> directories Pass to did_rename_files after the operation
 function M.will_rename_files(file_map)
-  will_do(methods.workspace_willRenameFiles, vim.tbl_keys(file_map), rename_params(file_map))
+  local files = vim.tbl_keys(file_map)
+  local directories = directory_snapshot(files)
+  will_do(methods.workspace_willRenameFiles, files, rename_params(file_map), directories)
+  return directories
 end
 
 ---@param file_map table<string, string> old name to new name mapping
-function M.did_rename_files(file_map)
-  did_do(methods.workspace_didRenameFiles, vim.tbl_keys(file_map), rename_params(file_map))
+---@param directories? table<string, boolean>
+function M.did_rename_files(file_map, directories)
+  did_do(methods.workspace_didRenameFiles, vim.tbl_keys(file_map), rename_params(file_map), directories)
 end
 
 ---@param files string[]
+---@return table<string, boolean> directories Pass to did_delete_files after the operation
 function M.will_delete_files(files)
-  will_do(methods.workspace_willDeleteFiles, files, create_delete_params)
+  local directories = directory_snapshot(files)
+  will_do(methods.workspace_willDeleteFiles, files, create_delete_params, directories)
+  return directories
 end
 
 ---@param files string[]
-function M.did_delete_files(files)
-  did_do(methods.workspace_didDeleteFiles, files, create_delete_params)
+---@param directories? table<string, boolean>
+function M.did_delete_files(files, directories)
+  did_do(methods.workspace_didDeleteFiles, files, create_delete_params, directories)
 end
 
 return M

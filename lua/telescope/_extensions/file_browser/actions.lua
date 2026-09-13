@@ -187,7 +187,7 @@ local function rename_files(path_map)
     str_map[old:absolute()] = new:absolute()
   end
 
-  fb_lsp.will_rename_files(str_map)
+  local directories = fb_lsp.will_rename_files(str_map)
 
   for old, new in pairs(path_map) do
     local old_name = old:absolute()
@@ -200,7 +200,7 @@ local function rename_files(path_map)
     end
   end
 
-  fb_lsp.did_rename_files(str_map)
+  fb_lsp.did_rename_files(str_map, directories)
 end
 
 local batch_rename = function(prompt_bufnr, selections)
@@ -539,7 +539,7 @@ fb_actions.remove = function(prompt_bufnr)
       local paths = vim.tbl_map(function(sel)
         return sel:absolute()
       end, selections)
-      fb_lsp.will_delete_files(paths)
+      local directories = fb_lsp.will_delete_files(paths)
 
       for _, p in ipairs(selections) do
         local is_dir = p:is_dir()
@@ -553,7 +553,7 @@ fb_actions.remove = function(prompt_bufnr)
         table.insert(removed, p.filename:sub(#p:parent().filename + 2))
       end
 
-      fb_lsp.did_delete_files(paths)
+      fb_lsp.did_delete_files(paths, directories)
       fb_utils.notify(
         "actions.remove",
         { msg = "Removed: " .. table.concat(removed, ", "), level = "INFO", quiet = quiet }
