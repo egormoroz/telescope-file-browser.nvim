@@ -11,6 +11,7 @@ end
 
 local fb_utils = require "telescope._extensions.file_browser.utils"
 local methods = vim.lsp.protocol.Methods
+local has_client_methods = vim.fn.has "nvim-0.11" == 1
 
 local M = {}
 
@@ -159,9 +160,13 @@ local function will_do(method, files, param_fn)
     local filters =
       vim.tbl_get(client, "server_capabilities", "workspace", "fileOperations", capability_names[method], "filters")
     if filters ~= nil then
-      files = matching_files(files, filters)
-      local param = param_fn(files)
-      local result, reason = client.request_sync(method, param, nil, 0)
+      local param = param_fn(matching_files(files, filters))
+      local result, reason
+      if has_client_methods then
+        result, reason = client:request_sync(method, param, nil, 0)
+      else
+        result, reason = client.request_sync(method, param, nil, 0)
+      end
       if result == nil then
         fb_utils.notify("lsp", { msg = reason, level = "WARN" })
       elseif result.err ~= nil then
@@ -187,9 +192,13 @@ local function did_do(method, files, param_fn)
     local filters =
       vim.tbl_get(client, "server_capabilities", "workspace", "fileOperations", capability_names[method], "filters")
     if filters ~= nil then
-      files = matching_files(files, filters)
-      local param = param_fn(files)
-      local status = client.notify(method, param)
+      local param = param_fn(matching_files(files, filters))
+      local status
+      if has_client_methods then
+        status = client:notify(method, param)
+      else
+        status = client.notify(method, param)
+      end
       if not status then
         fb_utils.notify("lsp", { msg = "Failed to notify LSP server", level = "WARN" })
       end

@@ -536,7 +536,10 @@ fb_actions.remove = function(prompt_bufnr)
   get_confirmation({ prompt = "Remove selection? (" .. #files .. " items)" }, function(confirmed)
     vim.cmd [[ redraw ]] -- redraw to clear out vim.ui.prompt to avoid hit-enter prompt
     if confirmed then
-      fb_lsp.will_delete_files(files)
+      local paths = vim.tbl_map(function(sel)
+        return sel:absolute()
+      end, selections)
+      fb_lsp.will_delete_files(paths)
 
       for _, p in ipairs(selections) do
         local is_dir = p:is_dir()
@@ -550,7 +553,7 @@ fb_actions.remove = function(prompt_bufnr)
         table.insert(removed, p.filename:sub(#p:parent().filename + 2))
       end
 
-      fb_lsp.did_delete_files(files)
+      fb_lsp.did_delete_files(paths)
       fb_utils.notify(
         "actions.remove",
         { msg = "Removed: " .. table.concat(removed, ", "), level = "INFO", quiet = quiet }
